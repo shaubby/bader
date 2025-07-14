@@ -423,8 +423,6 @@
     INTEGER, DIMENSION(4) :: ucpCounts
     INTEGER, DIMENSION(2) :: connectedAtoms
     INTEGER :: i,cptnum,ucptnum       
-
-    !$OMP PARALLEL DO PRIVATE(i, temcap, temscale, temnormcap, trueR, interpolHessian, connectedAtoms)
     DO i = 1, cptnum
       cpcl(i)%isunique = .FALSE.
       temcap = (/1.,1.,1./)
@@ -444,13 +442,11 @@
         !CALL MakeCPRoster(cpRoster,i,truer) !not sure what this does
         cpcl(i)%trueind = trueR
         interpolHessian = trilinear_interpol_hes(nnHes,distance)
-        !$OMP CRITICAL
         ucptnum = ucptnum + 1
         interpolHessian = CDHessianR(truer,chg)
         CALL RecordCPR(truer,chg,cpl,ucptnum,connectedAtoms, ucpCounts, &
           opts, interpolHessian, &
           cpcl(i)%ind)
-        !$OMP END CRITICAL
         CYCLE
       ELSE
         CYCLE
@@ -458,7 +454,6 @@
       CALL pbc_r_lat(trueR,chg%npts)
     ! moving on to the next critical pint candidate
     END DO
-    !$OMP END PARALLEL DO
   END SUBROUTINE SearchWithCPCL
 
   SUBROUTINE SearchWithCPCLParallelized(bdr,chg,cpcl,cpl,cptnum,ucptnum,ucpCounts,opts)
@@ -836,7 +831,7 @@
           ! point is within half lattice to another, do not record this new point.
           ALLOCATE(cpRoster(cptnum,3))
           IF (LDM_Trajectories) ALLOCATE(fullcpRoster(cptnum,3))
-          CALL SearchWithCPCLParallelized(bdr,chg,cpcl,cpl,cptnum,ucptnum,ucpCounts,opts)
+          CALL SearchWithCPCLMultiThread(bdr,chg,cpcl,cpl,cptnum,ucptnum,ucpCounts,opts)
 
           PRINT *, 'Number of critical point count: ', ucptnum
           PRINT *, 'Number of nuclear, bond, ring and cage  critical point &
