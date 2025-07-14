@@ -408,87 +408,60 @@
     END DO
   END SUBROUTINE GetCPCL
 
-  SUBROUTINE SearchWithCPCLMultithread(bdr, chg, cpcl, cpl, cptnum, ucptnum, ucpCounts, opts)
-    USE omp_lib
+  SUBROUTINE SearchWithCPCL(bdr,chg,cpcl,cpl,cptnum,ucptnum,ucpCounts,opts)
     TYPE(bader_obj) :: bdr
     TYPE(charge_obj) :: chg
-    TYPE(cpc), ALLOCATABLE, DIMENSION(:) :: cpcl, cpl
+    TYPE(cpc), ALLOCATABLE, DIMENSION(:) :: cpcl,cpl
+    
     TYPE(options_obj) :: opts
 
     REAL(q2), DIMENSION(8,3,3) :: nnHes
     REAL(q2), DIMENSION(3,3) :: interpolHessian
-    REAL(q2), DIMENSION(3) :: temcap, temscale, trueR, distance
+    REAL(q2),DIMENSION(3) :: temcap,temscale,trueR,distance
     REAL(q2) :: temnormcap
 
     INTEGER, DIMENSION(4) :: ucpCounts
-    INTEGER, DIMENSION(2) :: connectedAtoms 
-    INTEGER :: i, cptnum, ucptnum
-    INTEGER :: thread_id, my_ucptnum, nthreads, total_ucptnum
-    INTEGER :: j
+    INTEGER, DIMENSION(2) :: connectedAtoms
+    INTEGER :: i,cptnum,ucptnum       
 
-    TYPE(cpc), ALLOCATABLE, DIMENSION(:,:) :: cpl_local
-    INTEGER, ALLOCATABLE, DIMENSION(:) :: count_local
-
-    ! Prepare per-thread buffers
-    nthreads = OMP_GET_MAX_THREADS()
-    ALLOCATE(cpl_local(nthreads, cptnum))
-    ALLOCATE(count_local(nthreads))
-    count_local = 0
-
-    !$OMP PARALLEL PRIVATE(i, temcap, temscale, temnormcap, trueR, interpolHessian, connectedAtoms, my_ucptnum, thread_id)
-    thread_id = OMP_GET_THREAD_NUM()
-
-    !$OMP DO
+    !$OMP PARALLEL DO PRIVATE(i, temcap, temscale, temnormcap, trueR, interpolHessian, connectedAtoms)
     DO i = 1, cptnum
       cpcl(i)%isunique = .FALSE.
-      temcap = (/1.0_q2, 1.0_q2, 1.0_q2/)
-      temscale = (/1.0_q2, 1.0_q2, 1.0_q2/)
-      temnormcap = 1.0_q2
-
+      temcap = (/1.,1.,1./)
+      temscale = (/1.,1.,1./)
+      temnormcap = 1.
       IF (opts%gradMode) THEN
-        CALL GradientDescend(bdr, chg, opts, trueR, cpcl(i)%ind, cpcl(i)%isUnique, 3000)
+         !uses GradientDescend instead of NRTFGP          
+         CALL GradientDescend(bdr,chg,opts,trueR,cpcl(i)%ind,&
+         cpcl(i)%isUnique,3000)
       ELSE
-        CALL NRTFGPMultithread(bdr, chg, opts, trueR, cpcl(i)%isUnique, cpcl(i)%r, cpcl(i)%ind, 1000)
+         ! Begins newton raphson validation process
+         CALL NRTFGP(bdr,chg,opts,trueR,&
+         cpcl(i)%isUnique,cpcl(i)%r,cpcl(i)%ind,&
+         1000)
       END IF
-
-      IF (cpcl(i)%isUnique) THEN
+      IF (cpcl(i)%isUnique ) THEN
+        !CALL MakeCPRoster(cpRoster,i,truer) !not sure what this does
         cpcl(i)%trueind = trueR
-        interpolHessian = CDHessianR(trueR, chg)
-
-        count_local(thread_id + 1) = count_local(thread_id + 1) + 1
-        my_ucptnum = count_local(thread_id + 1)
-        
-        CALL RecordCPR(trueR, chg, cpl_local(thread_id + 1, my_ucptnum), &
-              0, connectedAtoms, ucpCounts, opts, interpolHessian, cpcl(i)%ind)
+        interpolHessian = trilinear_interpol_hes(nnHes,distance)
+        !$OMP CRITICAL
+        ucptnum = ucptnum + 1
+        interpolHessian = CDHessianR(truer,chg)
+        CALL RecordCPR(truer,chg,cpl,ucptnum,connectedAtoms, ucpCounts, &
+          opts, interpolHessian, &
+          cpcl(i)%ind)
+        !$OMP END CRITICAL
+        CYCLE
+      ELSE
+        CYCLE
       END IF
+      CALL pbc_r_lat(trueR,chg%npts)
+    ! moving on to the next critical pint candidate
     END DO
-    !$OMP END DO
-    !$OMP END PARALLEL
+    !$OMP END PARALLEL DO
+  END SUBROUTINE SearchWithCPCL
 
-    ! Combine thread-local sea
-    total_ucptnum = 0
-    DO i = 1, nthreads
-      total_ucptnum = total_ucptnum + count_local(i)
-    END DO
-
-    ucptnum = total_ucptnum
-    ALLOCATE(cpl(ucptnum))
-
-    j = 0
-    DO i = 1, nthreads
-      DO thread_id = 1, count_local(i)
-        j = j + 1
-        cpl(j) = cpl_local(i, thread_id)
-      END DO
-    END DO
-
-    ! Clean up
-    DEALLOCATE(cpl_local)
-    DEALLOCATE(count_local)
-
-  END SUBROUTINE SearchWithCPCLMultithread
-
-SUBROUTINE SearchWithCPCL(bdr,chg,cpcl,cpl,cptnum,ucptnum,ucpCounts,opts)
+  SUBROUTINE SearchWithCPCLParallelized(bdr,chg,cpcl,cpl,cptnum,ucptnum,ucpCounts,opts)
     TYPE(bader_obj) :: bdr
     TYPE(charge_obj) :: chg
     TYPE(cpc), ALLOCATABLE, DIMENSION(:) :: cpcl,cpl
@@ -534,9 +507,7 @@ SUBROUTINE SearchWithCPCL(bdr,chg,cpcl,cpl,cptnum,ucptnum,ucpCounts,opts)
       CALL pbc_r_lat(trueR,chg%npts)
     ! moving on to the next critical pint candidate
     END DO
-  END SUBROUTINE SearchWithCPCL
-
-
+  END SUBROUTINE SearchWithCPCLParallelized
 
   ! This subroutine reads in a list of CPs and their types, runs it through ReduceCP and PHRuleExam
   SUBROUTINE StaticCheck(bdr,chg,opts,ions)
