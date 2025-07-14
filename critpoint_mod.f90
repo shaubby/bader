@@ -457,9 +457,9 @@
 
         count_local(thread_id + 1) = count_local(thread_id + 1) + 1
         my_ucptnum = count_local(thread_id + 1)
-
-        CALL RecordCPR(trueR, chg, cpl_local(thread_id + 1, my_ucptnum), &
-                      0, connectedAtoms, ucpCounts, opts, interpolHessian, cpcl(i)%ind)
+        
+        CALL RecordCPR(trueR, chg, cpl_local(thread_id + 1, :), &
+              0, connectedAtoms, ucpCounts, opts, interpolHessian, cpcl(i)%ind)
       END IF
     END DO
     !$OMP END DO
