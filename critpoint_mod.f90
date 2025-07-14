@@ -461,7 +461,6 @@
     TYPE(bader_obj) :: bdr
     TYPE(charge_obj) :: chg
     TYPE(cpc), ALLOCATABLE, DIMENSION(:) :: cpcl,cpl
-    
     TYPE(options_obj) :: opts
 
     REAL(q2), DIMENSION(8,3,3) :: nnHes
@@ -472,6 +471,8 @@
     INTEGER, DIMENSION(4) :: ucpCounts
     INTEGER, DIMENSION(2) :: connectedAtoms
     INTEGER :: i,cptnum,ucptnum       
+
+    !$OMP PARALLEL DO PRIVATE(i, temcap, temscale, temnormcap, trueR, interpolHessian, connectedAtoms)
     DO i = 1, cptnum
       cpcl(i)%isunique = .FALSE.
       temcap = (/1.,1.,1./)
@@ -503,6 +504,7 @@
       CALL pbc_r_lat(trueR,chg%npts)
     ! moving on to the next critical pint candidate
     END DO
+    !$OMP END PARALLEL DO
   END SUBROUTINE SearchWithCPCLParallelized
 
   ! This subroutine reads in a list of CPs and their types, runs it through ReduceCP and PHRuleExam
