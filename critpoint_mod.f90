@@ -492,11 +492,13 @@
         !CALL MakeCPRoster(cpRoster,i,truer) !not sure what this does
         cpcl(i)%trueind = trueR
         interpolHessian = trilinear_interpol_hes(nnHes,distance)
+        !$OMP CRITICAL
         ucptnum = ucptnum + 1
         interpolHessian = CDHessianR(truer,chg)
         CALL RecordCPR(truer,chg,cpl,ucptnum,connectedAtoms, ucpCounts, &
           opts, interpolHessian, &
           cpcl(i)%ind)
+        !$OMP END CRITICAL
         CYCLE
       ELSE
         CYCLE
