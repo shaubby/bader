@@ -470,72 +470,43 @@
 
     INTEGER, DIMENSION(4) :: ucpCounts
     INTEGER, DIMENSION(2) :: connectedAtoms
-    INTEGER :: i, cptnum, ucptnum
-    INTEGER :: num_threads, tid, local_count, global_count, j
-    INTEGER, ALLOCATABLE :: thread_counts(:)
-    TYPE(cpc), ALLOCATABLE, DIMENSION(:,:) :: thread_cpl
-    INTEGER, ALLOCATABLE, DIMENSION(:,:) :: thread_indices
-    INTEGER, ALLOCATABLE :: global_indices(:)
-    INTEGER, PARAMETER :: max_per_thread = 10000
+    INTEGER :: i,cptnum,ucptnum       
 
-    num_threads = omp_get_max_threads()
-    ALLOCATE(thread_counts(num_threads))
-    ALLOCATE(thread_cpl(max_per_thread, num_threads))
-    ALLOCATE(thread_indices(max_per_thread, num_threads))
-    thread_counts = 0
-
-    !$OMP PARALLEL PRIVATE(i, temcap, temscale, temnormcap, trueR, interpolHessian, connectedAtoms, tid, local_count, j)
-      tid = omp_get_thread_num() + 1
-      local_count = 0
-      !$OMP DO
-      DO i = 1, cptnum
-        cpcl(i)%isunique = .FALSE.
-        temcap = (/1.,1.,1./)
-        temscale = (/1.,1.,1./)
-        temnormcap = 1.
-        IF (opts%gradMode) THEN
-           CALL GradientDescend(bdr,chg,opts,trueR,cpcl(i)%ind,cpcl(i)%isUnique,3000)
-        ELSE
-           CALL NRTFGP(bdr,chg,opts,trueR,cpcl(i)%isUnique,cpcl(i)%r,cpcl(i)%ind,1000)
-        END IF
-        IF (cpcl(i)%isUnique ) THEN
-          cpcl(i)%trueind = trueR
-          interpolHessian = trilinear_interpol_hes(nnHes,distance)
-          interpolHessian = CDHessianR(truer,chg)
-          IF (local_count < max_per_thread) THEN
-            local_count = local_count + 1
-            thread_cpl(local_count, tid) = cpcl(i)
-            thread_indices(local_count, tid) = i
-          ELSE
-            PRINT *, "WARNING: Thread", tid, "exceeded max_per_thread. Skipping further unique CPs."
-          END IF
-        END IF
-        CALL pbc_r_lat(trueR,chg%npts)
-      END DO
-      !$OMP END DO
-      thread_counts(tid) = local_count
-    !$OMP END PARALLEL
-
-    ucptnum = SUM(thread_counts)
-    IF (ALLOCATED(cpl)) DEALLOCATE(cpl)
-    ALLOCATE(cpl(ucptnum))
-    ALLOCATE(global_indices(ucptnum))
-    global_count = 0
-    DO tid = 1, num_threads
-      DO j = 1, thread_counts(tid)
-        global_count = global_count + 1
-        cpl(global_count) = thread_cpl(j, tid)
-        global_indices(global_count) = thread_indices(j, tid)
-      END DO
+    !$OMP PARALLEL DO PRIVATE(i, temcap, temscale, temnormcap, trueR, interpolHessian, connectedAtoms)
+    DO i = 1, cptnum
+      cpcl(i)%isunique = .FALSE.
+      temcap = (/1.,1.,1./)
+      temscale = (/1.,1.,1./)
+      temnormcap = 1.
+      IF (opts%gradMode) THEN
+         !uses GradientDescend instead of NRTFGP          
+         CALL GradientDescend(bdr,chg,opts,trueR,cpcl(i)%ind,&
+         cpcl(i)%isUnique,3000)
+      ELSE
+         ! Begins newton raphson validation process
+         CALL NRTFGP(bdr,chg,opts,trueR,&
+         cpcl(i)%isUnique,cpcl(i)%r,cpcl(i)%ind,&
+         1000)
+      END IF
+      IF (cpcl(i)%isUnique ) THEN
+        !CALL MakeCPRoster(cpRoster,i,truer) !not sure what this does
+        cpcl(i)%trueind = trueR
+        interpolHessian = trilinear_interpol_hes(nnHes,distance)
+        !$OMP CRITICAL
+        ucptnum = ucptnum + 1
+        interpolHessian = CDHessianR(truer,chg)
+        CALL RecordCPR(truer,chg,cpl,ucptnum,connectedAtoms, ucpCounts, &
+          opts, interpolHessian, &
+          cpcl(i)%ind)
+        !$OMP END CRITICAL
+        CYCLE
+      ELSE
+        CYCLE
+      END IF
+      CALL pbc_r_lat(trueR,chg%npts)
+    ! moving on to the next critical pint candidate
     END DO
-
-    ! Optionally, print the mapping from cpl to original cpcl indices
-    PRINT *, "First 10 unique CPs and their original indices:"
-    DO i = 1, MIN(10, ucptnum)
-      PRINT *, "cpl(", i, ") from cpcl(", global_indices(i), ") : ", cpl(i)%ind
-    END DO
-
-    DEALLOCATE(thread_cpl, thread_indices, thread_counts, global_indices)
+    !$OMP END PARALLEL DO
   END SUBROUTINE SearchWithCPCLParallelized
 
   ! This subroutine reads in a list of CPs and their types, runs it through ReduceCP and PHRuleExam
