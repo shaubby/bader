@@ -457,97 +457,6 @@
     END DO
   END SUBROUTINE SearchWithCPCL
 
-  SUBROUTINE SearchWithCPCLParallelized(bdr,chg,cpcl,cpl,cptnum,ucptnum,ucpCounts,opts)
-    TYPE(bader_obj) :: bdr
-    TYPE(charge_obj) :: chg
-    TYPE(cpc), ALLOCATABLE, DIMENSION(:) :: cpcl,cpl
-    TYPE(options_obj) :: opts
-
-    REAL(q2), DIMENSION(8,3,3) :: nnHes
-    REAL(q2), DIMENSION(3,3) :: interpolHessian
-    REAL(q2),DIMENSION(3) :: temcap,temscale,trueR,distance
-    REAL(q2) :: temnormcap
-
-    INTEGER, DIMENSION(4) :: ucpCounts
-    INTEGER, DIMENSION(2) :: connectedAtoms
-    INTEGER :: i,cptnum,ucptnum       
-
-    !$OMP PARALLEL PRIVATE(i, temcap, temscale, temnormcap, trueR, interpolHessian, connectedAtoms, tid, local_count, j)
-      tid = omp_get_thread_num() + 1
-      local_count = 0
-      !$OMP DO SCHEDULE(dynamic)
-      DO i = 1, cptnum
-        cpcl(i)%isunique = .FALSE.
-        temcap = (/1.,1.,1./)
-        temscale = (/1.,1.,1./)
-        temnormcap = 1.
-        IF (opts%gradMode) THEN
-           CALL GradientDescend(bdr,chg,opts,trueR,cpcl(i)%ind,cpcl(i)%isUnique,3000)
-        ELSE
-           CALL NRTFGP(bdr,chg,opts,trueR,cpcl(i)%isUnique,cpcl(i)%r,cpcl(i)%ind,1000)
-        END IF
-        IF (cpcl(i)%isUnique ) THEN
-          cpcl(i)%trueind = trueR
-          interpolHessian = trilinear_interpol_hes(nnHes,distance)
-          interpolHessian = CDHessianR(truer,chg)
-          IF (local_count < max_per_thread) THEN
-            local_count = local_count + 1
-            thread_cpl(local_count, tid) = cpcl(i)
-            thread_indices(local_count, tid) = i
-          ELSE
-            PRINT *, "WARNING: Thread", tid, "exceeded max_per_thread. Skipping further unique CPs."
-          END IF
-        END IF
-        CALL pbc_r_lat(trueR,chg%npts)
-      END DO
-      !$OMP END DO
-      thread_counts(tid) = local_count
-    !$OMP END PARALLEL
-
-    cptnum = SUM(thread_counts)
-    IF (ALLOCATED(cpcl)) DEALLOCATE(cpcl)
-    ALLOCATE(cpcl(cptnum))
-    k = 0
-    DO i = 1, num_threads
-      DO j = 1, thread_counts(i)
-        k = k + 1
-        cpcl(k) = thread_cpl(j, i)
-      END DO
-    END DO
-    
-    
-    CALL FilterDuplicateCandidates(cpcl, cptnum, opts)
-    CALL RemoveGaps(cpcl, cptnum)
-    ALLOCATE(cpclt(cptnum))
-    DO i = 1, cptnum
-      cpclt(i) = cpcl(i)
-    END DO
-    DEALLOCATE(cpcl)
-    ALLOCATE(cpcl(cptnum))
-    DO i = 1, cptnum
-      cpcl(i)=cpclt(i)
-    END DO
-    DEALLOCATE(cpclt)
-
-    PRINT *, "Final candidate count: ", cptnum
-    ALLOCATE(cpclt(SIZE(cpcl)))
-    DO i = 1, SIZE(cpl)
-      cpclt(i) = cpl(i)
-    END DO
-    DEALLOCATE(cpl)
-    ALLOCATE(cpl(SIZE(cpclt)))
-    DO i = 1, SIZE(cpclt)
-      cpl(i)=cpclt(i)
-    END DO
-    DEALLOCATE(cpclt)
-
-
-    DEALLOCATE(thread_cpl)
-    DEALLOCATE(thread_indices)
-    DEALLOCATE(thread_counts)
-
-  END SUBROUTINE SearchWithCPCLParallelized
-
   ! This subroutine reads in a list of CPs and their types, runs it through ReduceCP and PHRuleExam
   SUBROUTINE StaticCheck(bdr,chg,opts,ions)
     TYPE(bader_obj) :: bdr
@@ -875,7 +784,7 @@
           ! point is within half lattice to another, do not record this new point.
           ALLOCATE(cpRoster(cptnum,3))
           IF (LDM_Trajectories) ALLOCATE(fullcpRoster(cptnum,3))
-          CALL SearchWithCPCLParallelized(bdr,chg,cpcl,cpl,cptnum,ucptnum,ucpCounts,opts)
+          CALL SearchWithCPCL(bdr,chg,cpcl,cpl,cptnum,ucptnum,ucpCounts,opts)
 
           PRINT *, 'Number of critical point count: ', ucptnum
           PRINT *, 'Number of nuclear, bond, ring and cage  critical point &
