@@ -167,7 +167,7 @@
     LOGICAL :: should_add
 
     ! --- Setup ---
-    num_threads = omp_get_max_threads()
+    num_threads = opts%thread_count
     ALLOCATE(thread_cpcl_all(MAX_CANDIDATES_PER_THREAD, num_threads))
     ALLOCATE(thread_counts(num_threads))
     thread_counts = 0
@@ -769,7 +769,11 @@
       ELSE 
         ! Loop through every grid point once and collect a list of points to start
         ! CP searching trajectories into cpcl, the CP candidate list.
-        CALL GetCPCL(bdr,chg,cpl,cpcl,opts,cptnum)
+        IF(opts%thread_count == 1) THEN
+          CALL GetCPCL(bdr,chg,cpl,cpcl,opts,cptnum)
+        ELSE
+          CALL GetCPCL_Spatial(bdr,chg,cpl,cpcl,opts,cptnum)
+          
         IF (cptnum > 100000) THEN
           stat = 0
         ELSE 

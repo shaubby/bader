@@ -42,6 +42,7 @@
       LOGICAL :: static_check ! reads in a list of CPs and runs through checks.
       LOGICAL :: aflow_sym ! Reads aflow.fgroup.relax.out to get symmetry info
       LOGICAL :: ignore_cp_conflict ! This forces ReduceCP to always finish.
+      INTEGER :: thread_count
    END TYPE options_obj
 
     PRIVATE
@@ -113,6 +114,7 @@
       opts%static_search = .FALSE.
       opts%aflow_sym = .FALSE.
       opts%ignore_cp_conflict = .FALSE.
+      opts%thread_count = 1
 !      n=IARGC()
       n=COMMAND_ARGUMENT_COUNT()
       IF (n == 0) THEN
